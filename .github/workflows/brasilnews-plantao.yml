@@ -1,5 +1,5 @@
 # Salvar no repositório do GitHub em: .github/workflows/brasilnews-plantao.yml
-# Brasil News plantão v1.0 (01/11/2026, categorias conferidas no site): mesmo robô do INFO NEWS (v3.3), publicando no WordPress
+# Brasil News plantão v1.2 (01/11/2026): legenda/crédito da foto na primeira linha do texto + teste de login no início: mesmo robô do INFO NEWS (v3.3), publicando no WordPress
 # pela REST API. Fotos reais do fato em fontes oficiais com licença livre + crédito obrigatório.
 #
 # Segredos necessários (Settings > Secrets and variables > Actions):
@@ -50,6 +50,29 @@ jobs:
             echo "Configuração incompleta: cadastre WP_URL, WP_USER, WP_APP_PASSWORD e CLAUDE_CODE_OAUTH_TOKEN em Settings > Secrets. Nada foi publicado." >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      - name: Testar login no WordPress
+        if: steps.cfg.outputs.pronto == 'sim'
+        env:
+          WP_URL: ${{ secrets.WP_URL }}
+          WP_USER: ${{ secrets.WP_USER }}
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+        run: |
+          code=$(curl -sS -o me.json -w '%{http_code}' -u "$WP_USER:$WP_APP_PASSWORD" "$WP_URL/wp-json/wp/v2/users/me?context=edit")
+          echo "GET /users/me -> HTTP $code"
+          if [ "$code" = "200" ]; then
+            python3 -c "import json; d=json.load(open('me.json')); print('Logado como:', d.get('slug'), '| papéis:', d.get('roles'))"
+          else
+            cat me.json; echo
+            {
+              echo "## Brasil News plantão: falha de login no WordPress (HTTP $code)"
+              echo "- 401: senha de aplicativo ou usuário errados (gere outra senha em Usuários > Perfil > Senhas de aplicativo e atualize o segredo WP_APP_PASSWORD)."
+              echo "- 403 ou 400 'rest_not_logged_in': o servidor está descartando o cabeçalho Authorization. Adicione ao .htaccess do site, antes de '# BEGIN WordPress':"
+              echo '  SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1'
+              echo "Nada foi publicado."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
       - name: Ler categorias e últimas publicações do WordPress (e do INFO NEWS)
         if: steps.cfg.outputs.pronto == 'sim'
         env:
@@ -61,7 +84,7 @@ jobs:
           curl -sS --fail -u "$WP_USER:$WP_APP_PASSWORD" \
             "$WP_URL/wp-json/wp/v2/categories?per_page=100&_fields=id,name,slug,count" -o cats_raw.json
           curl -sS --fail -u "$WP_USER:$WP_APP_PASSWORD" \
-            "$WP_URL/wp-json/wp/v2/posts?per_page=100&status=publish,future&_fields=id,title,date,categories,featured_media" -o posts_raw.json
+            "$WP_URL/wp-json/wp/v2/posts?per_page=100&_fields=id,title,date,categories,featured_media" -o posts_raw.json
           curl -sS -L --max-time 25 "https://infonews.today/feed.xml" -o infonews.xml || : > infonews.xml
           python3 - <<'PY'
           import json, html, re
@@ -458,7 +481,9 @@ jobs:
                   }).encode(), headers={"Content-Type": "application/json"})
                   # 2) cria o post
                   pars = [p.strip() for p in d["texto"].split("\n") if p.strip()]
-                  corpo = "".join(f"<p>{html.escape(p)}</p>" for p in pars)
+                  # Legenda e crédito da foto como primeira linha do texto (o tema não mostra o caption da imagem destacada).
+                  corpo = f'<p class="legenda-foto" style="font-size:0.85em;color:#666;margin-top:-0.5em"><em>{html.escape(legenda)}</em></p>'
+                  corpo += "".join(f"<p>{html.escape(p)}</p>" for p in pars)
                   corpo += f'<p class="fonte-noticia"><em>Fonte: <a href="{html.escape(d["fonte_link"])}" rel="nofollow noopener" target="_blank">{html.escape(d["fonte_nome"])}</a></em></p>'
                   post = {
                       "title": d["titulo"],
