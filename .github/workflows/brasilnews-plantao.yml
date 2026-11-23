@@ -1,5 +1,6 @@
 # Salvar no repositório do GitHub em: .github/workflows/brasilnews-plantao.yml
-# Brasil News plantão v1.3 (01/11/2026): só foto REAL do próprio fato (proibidas imagens ilustrativas, de arquivo ou genéricas) + legenda na primeira linha do texto: mesmo robô do INFO NEWS (v3.3), publicando no WordPress
+# Brasil News plantão v1.4 (23/11/2026): foto real do fato em 1º lugar e foto oficial/Commons ilustrativa como 2ª opção; pode cobrir assunto do INFO NEWS com texto próprio; tenta publicar de novo em HTTP 429/5xx.
+# v1.2/v1.3: legenda/crédito da foto na primeira linha do texto + teste de login no início: mesmo robô do INFO NEWS (v3.3), publicando no WordPress
 # pela REST API. Fotos reais do fato em fontes oficiais com licença livre + crédito obrigatório.
 #
 # Segredos necessários (Settings > Secrets and variables > Actions):
@@ -201,11 +202,6 @@ jobs:
               lc = str(d.get("legenda_credito", ""))
               if lc and "Foto:" not in lc:
                   erros.append(f"{a}: legenda_credito precisa conter 'Foto: Autor/Veiculo (licenca)'")
-              lcb = lc.lower()
-              for proibida in ("ilustrativ", "arquivo", "generic", "genéric", "meramente", "reprodução", "reproducao"):
-                  if proibida in lcb:
-                      erros.append(f"{a}: legenda indica imagem ilustrativa/de arquivo ('{proibida}'); so e permitida foto REAL do proprio fato; troque a foto ou a pauta")
-                      break
               if d.get("categoria") not in CATS:
                   erros.append(f"{a}: categoria inválida: {d.get('categoria')}")
               cats.append(d.get("categoria"))
@@ -292,9 +288,11 @@ jobs:
               publicado, mesmo com outro título ou outro ângulo. Só volte a um assunto
               se houver fato novo relevante, e deixe claro no texto o que mudou.
             - Leia `infonews_titulos.txt`: títulos recentes do portal irmão INFO NEWS.
-              Os dois sites NÃO devem publicar a mesma notícia: se o assunto já está
-              lá, escolha outra pauta (ou outro fato do mesmo tema, com ângulo
-              claramente diferente). Em caso de dúvida, troque de pauta.
+              O Brasil News PODE cobrir o mesmo assunto que o INFO NEWS: é permitido
+              e normal. Nesse caso, apure de novo na fonte e escreva um texto próprio
+              (título, linha fina e parágrafos diferentes, outro ângulo ou outro
+              dado em destaque). Nunca copie nem parafraseie o texto do INFO NEWS;
+              nunca use a lista como motivo para descartar uma pauta boa.
             - Leia `trends.txt`: assuntos mais buscados no Google Brasil agora (ou um
               aviso de indisponibilidade). Use-os para ESCOLHER a pauta: assunto em alta
               com fonte confiável aberta e fato confirmado tem prioridade. Nunca escreva
@@ -372,7 +370,7 @@ jobs:
               "Fonte:" no corpo). Se usou um segundo veículo, o último parágrafo é
               "Com informações de <veículo>."
 
-            ## 5. Foto (SOMENTE a foto REAL do próprio fato, sempre com crédito)
+            ## 5. Foto (de preferência a foto REAL do fato, sempre com crédito)
             Ordem de busca, da melhor para a pior. Pare na primeira que der foto boa:
             1) A FOTO DA PRÓPRIA MATÉRIA na fonte oficial com licença livre. Abra a
                página da notícia na fonte e pegue o link direto do arquivo da foto
@@ -394,14 +392,12 @@ jobs:
                agência internacional, Getty, Reuters, AFP, EFE, G1, Globo, Estadão, UOL,
                Lance, redes sociais ou de clube de futebol). Se a página indicar outro
                fotógrafo ou "Reprodução", não use.
-            2) Wikimedia Commons, SOMENTE se houver no Commons uma foto do PRÓPRIO fato
-               (mesmo evento, mesmo local, tirada na data do acontecimento, conferida na
-               data e na descrição do arquivo). Nunca use foto do tema, do lugar ou da
-               pessoa em outra ocasião. Busque com:
+            2) Wikimedia Commons, para foto do tema quando a fonte oficial não tiver foto
+               própria do fato. Busque com:
                `curl -s "https://commons.wikimedia.org/w/api.php?action=query&format=json&generator=search&gsrnamespace=6&gsrlimit=50&gsrsearch=<TERMO>%20filetype:bitmap&prop=imageinfo&iiprop=extmetadata|url|size&iiurlwidth=640"`
                Em imagem_link use o endereço ORIGINAL em upload.wikimedia.org (campo url);
-               o validador troca pela versão de 1600 px. Legenda: "Descrição do que a foto
-               mostra, com data. Foto: Autor (licença), via Wikimedia Commons".
+               o validador troca pela versão de 1600 px. Legenda: "Descrição (foto de
+               arquivo, ANO). Foto: Autor (licença), via Wikimedia Commons".
             - Critérios para qualquer foto: horizontal (16:9 ou 3:2; nunca quadrada ou
               vertical), largura mínima de 1200 px (ideal 1600), JPG ou PNG, licença livre
               ou divulgação oficial, autor ou órgão identificado. Baixe com curl e abra
@@ -409,9 +405,8 @@ jobs:
               SOMENTE pela legenda/descrição da fonte, nunca pelo rosto.
             - Não repita foto (imagem_origem) que apareça em `ultimas.json`.
             - Toda notícia PRECISA de foto e de legenda_credito com "Foto:"; sem isso o
-              site recusa. PROIBIDO usar imagem ilustrativa, genérica, de arquivo, de outro
-              evento ou de outra data; a foto tem de mostrar o próprio fato noticiado.
-              Nunca gere imagem por IA. Se não houver foto real do fato, troque de pauta.
+              site recusa. Foto genérica deve dizer "imagem ilustrativa" na legenda.
+              Nunca gere imagem por IA. Se não houver foto dentro das regras, troque de pauta.
             - legenda_credito no padrão: "Legenda do que a foto mostra. Foto: Autor/Veículo (licença)".
 
             ## 6. Saída
@@ -442,7 +437,7 @@ jobs:
 
             Por fim, escreva `saida/relatorio.md` com: vaga desta execução, notícia
             (título, categoria, tipo, foto), o que não foi conferido em fonte, pautas
-            descartadas e por quê (inclua as descartadas por já estarem no INFO NEWS)
+            descartadas e por quê (se cobriu assunto que já estava no INFO NEWS, diga qual)
             e os links das fontes.
 
       - name: Publicar no WordPress
@@ -461,9 +456,19 @@ jobs:
           def wp(method, path, data=None, headers=None):
               h = {"Authorization": auth, "User-Agent": UA}
               h.update(headers or {})
-              req = urllib.request.Request(WP + "/wp-json/wp/v2" + path, data=data, method=method, headers=h)
-              with urllib.request.urlopen(req, timeout=60) as r:
-                  return json.loads(r.read().decode("utf-8"))
+              import time
+              for tentativa in range(1, 5):
+                  req = urllib.request.Request(WP + "/wp-json/wp/v2" + path, data=data, method=method, headers=h)
+                  try:
+                      with urllib.request.urlopen(req, timeout=60) as r:
+                          return json.loads(r.read().decode("utf-8"))
+                  except urllib.error.HTTPError as e:
+                      # 429 (muitas solicitacoes) e 5xx sao limites do servidor da hospedagem: espera e tenta de novo.
+                      if e.code in (429, 500, 502, 503, 504) and tentativa < 4:
+                          print(f"HTTP {e.code} em {method} {path}; nova tentativa em {30 * tentativa} s ({tentativa}/3)")
+                          time.sleep(30 * tentativa)
+                          continue
+                      raise
 
           cats = {c["nome"]: c["id"] for c in json.load(open("categorias.json", encoding="utf-8"))}
           total = 0
